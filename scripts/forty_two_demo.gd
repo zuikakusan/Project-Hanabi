@@ -11,7 +11,8 @@ const CRACKER_THROW_TIME := 0.72
 const CRACKER_THROW_SPEED := 10.0
 const CRACKER_FUSE_TIME := 5.0
 const CRACKER_EXPLOSION_RADIUS := 2.8
-const CAMERA_OFFSET := Vector3(-13.0, 15.0, 13.0)
+const CAMERA_OFFSET := Vector3(-13.0, 15.0, -13.0)
+const SCHOOL_ALLEY_X := -13.0
 
 const WEAPON_NONE := ""
 const WEAPON_SNAP := "snap"
@@ -56,7 +57,7 @@ var roof_route_open := false
 var got_roster := false
 
 var current_weapon := WEAPON_NONE
-var aim_direction := Vector3.FORWARD
+var aim_direction := Vector3.BACK
 var aim_point := Vector3.ZERO
 var cracker_lit := false
 var cracker_fuse := 0.0
@@ -194,50 +195,53 @@ func _build_level() -> void:
 
 func _build_school_gate(parent: Node) -> void:
 	_add_floor(parent, "SchoolStreetFloor", Vector3(1.0, -0.06, 20.0), Vector3(34.0, 0.12, 18.0), Color(0.52, 0.53, 0.49))
-	_add_solid_box(parent, "SchoolNorthWall", Vector3(0.0, 1.0, 29.2), Vector3(33.0, 2.0, 0.35), COLOR_SCHOOL)
-	_add_solid_box(parent, "SchoolWestBoundary", Vector3(-16.2, 1.0, 20.0), Vector3(0.35, 2.0, 18.4), COLOR_WALL_DARK)
-	_add_solid_box(parent, "SchoolEastStreetGuide", Vector3(17.8, 1.0, 20.0), Vector3(0.35, 2.0, 18.4), COLOR_WALL_DARK)
-	_add_solid_box(parent, "ShopSouthBoundaryLeft", Vector3(-4.8, 1.0, 10.8), Vector3(23.4, 2.0, 0.35), COLOR_SHOP)
-	_add_solid_box(parent, "ShopSouthBoundaryRight", Vector3(16.1, 1.0, 10.8), Vector3(3.3, 2.0, 0.35), COLOR_SHOP)
+	_add_floor(parent, "CampusYard", Vector3(7.8, -0.06, 33.0), Vector3(8.4, 0.12, 7.2), Color(0.46, 0.54, 0.49))
+	_add_solid_box(parent, "SchoolNorthWallLeft", Vector3(-5.8, 1.0, 29.2), Vector3(21.6, 2.0, 0.35), COLOR_SCHOOL)
+	_add_solid_box(parent, "SchoolNorthWallRight", Vector3(13.6, 1.0, 29.2), Vector3(5.8, 2.0, 0.35), COLOR_SCHOOL)
+	_add_solid_box(parent, "CampusBackBoundary", Vector3(7.8, 1.0, 36.6), Vector3(8.4, 2.0, 0.35), COLOR_SCHOOL)
+	_add_solid_box(parent, "CampusLeftBoundary", Vector3(3.6, 1.0, 33.0), Vector3(0.35, 2.0, 7.2), COLOR_SCHOOL)
+	_add_solid_box(parent, "CampusRightBoundary", Vector3(12.0, 1.0, 33.0), Vector3(0.35, 2.0, 7.2), COLOR_SCHOOL)
+	_add_solid_box(parent, "SchoolWestBoundary", Vector3(-17.8, 1.0, 20.0), Vector3(0.35, 2.0, 18.4), COLOR_WALL_DARK)
+	_add_solid_box(parent, "SchoolEastStreetGuide", Vector3(16.2, 1.0, 20.0), Vector3(0.35, 2.0, 18.4), COLOR_WALL_DARK)
 
-	_add_solid_box(parent, "SecurityBooth", Vector3(-13.0, 0.75, 26.4), Vector3(2.4, 1.5, 2.0), Color(0.42, 0.50, 0.48))
-	_add_label_marker(parent, "保安亭", Vector3(-13.0, 1.8, 26.4))
+	_add_solid_box(parent, "SecurityBooth", Vector3(11.3, 0.75, 28.0), Vector3(1.4, 1.5, 2.0), Color(0.42, 0.50, 0.48))
+	_add_label_marker(parent, "保安亭", Vector3(11.3, 1.8, 28.0))
 
-	_add_solid_box(parent, "SchoolGateLeft", Vector3(-9.7, 1.2, 28.7), Vector3(0.35, 2.4, 1.1), Color(0.72, 0.76, 0.70))
-	_add_solid_box(parent, "SchoolGateRight", Vector3(-6.0, 1.2, 28.7), Vector3(0.35, 2.4, 1.1), Color(0.72, 0.76, 0.70))
-	_add_label_marker(parent, "学校大门", Vector3(-7.8, 2.2, 28.1))
+	_add_solid_box(parent, "SchoolGateLeft", Vector3(5.7, 1.2, 28.7), Vector3(0.35, 2.4, 1.1), Color(0.72, 0.76, 0.70))
+	_add_solid_box(parent, "SchoolGateRight", Vector3(9.9, 1.2, 28.7), Vector3(0.35, 2.4, 1.1), Color(0.72, 0.76, 0.70))
+	_add_label_marker(parent, "学校大门", Vector3(7.8, 2.2, 28.1))
 
-	_add_solid_box(parent, "TeachingBuilding", Vector3(6.2, 1.25, 27.0), Vector3(13.0, 2.5, 3.3), Color(0.48, 0.58, 0.55))
-	_add_label_marker(parent, "教学楼 / 学校围墙", Vector3(6.2, 2.8, 27.0))
+	_add_solid_box(parent, "TeachingBuilding", Vector3(-6.2, 1.25, 27.0), Vector3(13.0, 2.5, 3.3), Color(0.48, 0.58, 0.55))
+	_add_label_marker(parent, "教学楼 / 学校围墙", Vector3(-6.2, 2.8, 27.0))
 
-	_add_shop(parent, "儿童托管", Vector3(-10.6, 0.8, 12.5), Color(0.64, 0.52, 0.38))
-	_add_shop(parent, "普通店铺", Vector3(-5.4, 0.8, 12.5), Color(0.54, 0.48, 0.40))
-	_add_shop(parent, "奶茶店", Vector3(7.0, 0.8, 12.5), Color(0.68, 0.48, 0.48))
-	_add_shop(parent, "老孟小卖部", Vector3(13.0, 0.8, 12.5), Color(0.46, 0.34, 0.22))
+	_add_shop(parent, "儿童托管", Vector3(10.6, 0.8, 9.7), Color(0.64, 0.52, 0.38))
+	_add_shop(parent, "普通店铺", Vector3(5.4, 0.8, 9.7), Color(0.54, 0.48, 0.40))
+	_add_solid_box(parent, "TeaShopBuilding", Vector3(-17.1, 0.8, 10.1), Vector3(3.9, 1.6, 5.0), Color(0.68, 0.48, 0.48))
+	_add_label_marker(parent, "奶茶店", Vector3(-17.1, 2.05, 10.1))
+	_add_solid_box(parent, "MengShopBuilding", Vector3(-8.9, 0.8, 10.1), Vector3(3.5, 1.6, 5.0), Color(0.46, 0.34, 0.22))
+	_add_label_marker(parent, "老孟小卖部", Vector3(-8.9, 2.05, 10.1))
 
-	var note := _add_interactable(parent, "WallNote", "note", "调查纸条", Vector3(12.2, 0.08, 27.1))
+	var note := _add_interactable(parent, "WallNote", "note", "调查纸条", Vector3(-12.2, 0.08, 27.1))
 	_add_floor(note, "PaperMesh", Vector3.ZERO, Vector3(0.9, 0.05, 0.6), COLOR_PAPER)
 	_add_label(note, "学校墙下纸条", Vector3(0.0, 0.62, 0.0))
 
-	_add_floor(parent, "TIntersectionMark", Vector3(13.0, 0.01, 16.0), Vector3(5.0, 0.04, 6.0), Color(0.43, 0.44, 0.41))
-	var alley_gate := _add_interactable(parent, "AlleyGate", "alley_gate", "进入小巷子", Vector3(13.0, 0.08, 8.3))
-	_add_floor(alley_gate, "AlleyGateMarker", Vector3.ZERO, Vector3(2.8, 0.05, 1.0), COLOR_COOL)
-	_add_label(alley_gate, "小巷子入口", Vector3(0.0, 0.7, 0.0))
+	_add_floor(parent, "TIntersectionMark", Vector3(SCHOOL_ALLEY_X, 0.01, 16.0), Vector3(5.0, 0.04, 6.0), Color(0.43, 0.44, 0.41))
+	_add_floor(parent, "AlleyMouthFloor", Vector3(SCHOOL_ALLEY_X, 0.01, 10.2), Vector3(4.2, 0.05, 6.8), COLOR_COOL)
+	_add_label_marker(parent, "小巷子入口", Vector3(SCHOOL_ALLEY_X, 0.75, 8.8))
 
 
 func _build_liminal_alley(parent: Node) -> void:
-	_add_floor(parent, "AlleyFloor", Vector3(0.0, -0.06, -28.0), Vector3(4.2, 0.12, 46.0), Color(0.44, 0.45, 0.42))
-	_add_solid_box(parent, "AlleyLeftWall", Vector3(-2.35, 1.15, -28.0), Vector3(0.35, 2.3, 46.0), COLOR_WALL)
-	_add_solid_box(parent, "AlleyRightWall", Vector3(2.35, 1.15, -28.0), Vector3(0.35, 2.3, 46.0), COLOR_WALL)
-	_add_solid_box(parent, "AlleyEntranceStop", Vector3(0.0, 1.0, -4.7), Vector3(4.6, 2.0, 0.30), COLOR_WALL_DARK)
+	_add_floor(parent, "AlleyFloor", Vector3(SCHOOL_ALLEY_X, -0.06, -21.5), Vector3(4.2, 0.12, 59.0), Color(0.44, 0.45, 0.42))
+	_add_solid_box(parent, "AlleyLeftWall", Vector3(SCHOOL_ALLEY_X - 2.35, 1.15, -21.5), Vector3(0.35, 2.3, 59.0), COLOR_WALL)
+	_add_solid_box(parent, "AlleyRightWall", Vector3(SCHOOL_ALLEY_X + 2.35, 1.15, -21.5), Vector3(0.35, 2.3, 59.0), COLOR_WALL)
 
 	for i in range(5):
 		var z := -10.0 - float(i) * 7.4
-		_add_floor(parent, "RepeatedWallSeam_%d" % i, Vector3(-2.16, 0.76, z), Vector3(0.06, 0.9, 1.6), COLOR_COOL)
-		_add_floor(parent, "RepeatedPipe_%d" % i, Vector3(2.16, 0.86, z - 1.6), Vector3(0.06, 1.2, 0.08), Color(0.26, 0.27, 0.25))
-		_add_label_marker(parent, "门牌 %02d" % (42 + i), Vector3(-2.05, 1.75, z + 1.4))
+		_add_floor(parent, "RepeatedWallSeam_%d" % i, Vector3(SCHOOL_ALLEY_X - 2.16, 0.76, z), Vector3(0.06, 0.9, 1.6), COLOR_COOL)
+		_add_floor(parent, "RepeatedPipe_%d" % i, Vector3(SCHOOL_ALLEY_X + 2.16, 0.86, z - 1.6), Vector3(0.06, 1.2, 0.08), Color(0.26, 0.27, 0.25))
+		_add_label_marker(parent, "门牌 %02d" % (42 + i), Vector3(SCHOOL_ALLEY_X - 2.05, 1.75, z + 1.4))
 
-	var alley_end := _add_interactable(parent, "AlleyEnd", "alley_end", "继续往前走", Vector3(0.0, 0.08, -50.5))
+	var alley_end := _add_interactable(parent, "AlleyEnd", "alley_end", "继续往前走", Vector3(SCHOOL_ALLEY_X, 0.08, -50.5))
 	_add_floor(alley_end, "AlleyEndMarker", Vector3.ZERO, Vector3(2.7, 0.05, 1.0), COLOR_DUSK)
 	_add_label(alley_end, "巷子尽头", Vector3(0.0, 0.7, 0.0))
 
@@ -312,7 +316,7 @@ func _build_roof_and_gap(parent: Node) -> void:
 func _build_player() -> void:
 	player = CharacterBody3D.new()
 	player.name = "Player"
-	player.position = Vector3(-11.0, 0.72, 20.5)
+	player.position = Vector3(7.8, 0.72, 20.5)
 	player.collision_layer = 1
 	player.collision_mask = 1
 	add_child(player)
@@ -547,14 +551,7 @@ func _interact_with(interactable: Node3D) -> void:
 			has_read_note = true
 			interactable.set_meta("disabled", true)
 			_show_message("纸条上写着：\n去小巷子。\n别让他们看见。")
-			_show_hint("去丁字口下方的小巷子入口。")
-		"alley_gate":
-			if not has_read_note:
-				_show_message("这条巷子你以前也见过。\n但你现在还不想进去。")
-			else:
-				_teleport_player(Vector3(0.0, 0.72, -7.0))
-				_show_message("你往前走了一会儿。\n两边的墙一直没有变。\n你回头看，学校门口已经看不见了。")
-				_show_hint("沿着长巷往前走。")
+			_show_hint("沿丁字口下方的小巷一直往前走。")
 		"alley_end":
 			_teleport_player(Vector3(0.0, 0.72, -76.0))
 			_show_message("巷子尽头出现了一栋二层楼。\n它不该在这里。")
