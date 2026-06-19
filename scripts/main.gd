@@ -126,7 +126,7 @@ func _build_player() -> void:
 	player = CharacterBody3D.new()
 	player.name = "Player"
 	player.set_script(PLAYER_SCRIPT)
-	player.global_position = Vector3(-3.0, 0.72, 10.0)
+	player.position = Vector3(-3.0, 0.72, 10.0)
 	player.collision_layer = 1
 	player.collision_mask = 1
 	add_child(player)
@@ -156,9 +156,9 @@ func _build_camera() -> void:
 	camera.size = 15.0
 	camera.near = 0.1
 	camera.far = 100.0
-	camera.global_position = player.global_position + camera_offset
-	camera.look_at(player.global_position, Vector3.UP)
+	camera.position = player.position + camera_offset
 	add_child(camera)
+	camera.look_at(player.global_position, Vector3.UP)
 	camera.current = true
 
 
@@ -207,7 +207,7 @@ func _build_ui() -> void:
 func _add_note(parent: Node) -> void:
 	var note := Node3D.new()
 	note.name = "NoteX"
-	note.global_position = Vector3(0.0, 0.05, 8.0)
+	note.position = Vector3(0.0, 0.05, 8.0)
 	note.set_meta("interact_id", "obj_note_x")
 	note.add_to_group("interactable")
 	parent.add_child(note)
@@ -232,7 +232,7 @@ func _add_cabinet(parent: Node) -> void:
 func _add_exit(parent: Node) -> void:
 	var exit := Node3D.new()
 	exit.name = "ExitEnd"
-	exit.global_position = Vector3(0.0, 0.02, -8.0)
+	exit.position = Vector3(0.0, 0.02, -8.0)
 	parent.add_child(exit)
 
 	var mesh := MeshInstance3D.new()
@@ -248,7 +248,7 @@ func _add_exit(parent: Node) -> void:
 func _add_door(parent: Node, door_name: String, interact_id: String, pos: Vector3, size: Vector3, color: Color) -> Node3D:
 	var door := Node3D.new()
 	door.name = door_name
-	door.global_position = pos
+	door.position = pos
 	door.set_meta("interact_id", interact_id)
 	door.add_to_group("interactable")
 	parent.add_child(door)
@@ -280,21 +280,21 @@ func _add_door(parent: Node, door_name: String, interact_id: String, pos: Vector
 
 
 func _add_floor(parent: Node, node_name: String, pos: Vector3, size: Vector3, color: Color) -> MeshInstance3D:
-	var floor := MeshInstance3D.new()
-	floor.name = node_name
-	floor.global_position = pos
+	var floor_mesh := MeshInstance3D.new()
+	floor_mesh.name = node_name
+	floor_mesh.position = pos
 	var mesh := BoxMesh.new()
 	mesh.size = size
-	floor.mesh = mesh
-	floor.set_surface_override_material(0, _material(color))
-	parent.add_child(floor)
-	return floor
+	floor_mesh.mesh = mesh
+	floor_mesh.set_surface_override_material(0, _material(color))
+	parent.add_child(floor_mesh)
+	return floor_mesh
 
 
 func _add_solid_box(parent: Node, node_name: String, pos: Vector3, size: Vector3, color: Color) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = node_name
-	body.global_position = pos
+	body.position = pos
 	body.collision_layer = 1
 	body.collision_mask = 1
 	parent.add_child(body)
