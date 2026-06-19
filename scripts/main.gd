@@ -5,16 +5,17 @@ const PLAYER_SCRIPT := preload("res://scripts/player.gd")
 const INTERACT_RANGE := 1.8
 const EXIT_RANGE := 2.3
 
-const COLOR_WALL := Color(0.42, 0.37, 0.27)
-const COLOR_WALL_DARK := Color(0.26, 0.24, 0.21)
-const COLOR_ROOM_B_FLOOR := Color(0.34, 0.33, 0.29)
-const COLOR_ROOM_A_FLOOR := Color(0.31, 0.28, 0.24)
-const COLOR_OUTDOOR_FLOOR := Color(0.48, 0.35, 0.22)
+const COLOR_WALL := Color(0.055, 0.055, 0.06)
+const COLOR_WALL_DARK := Color(0.035, 0.035, 0.04)
+const COLOR_ROOM_B_FLOOR := Color(0.46, 0.46, 0.45)
+const COLOR_ROOM_A_FLOOR := Color(0.40, 0.40, 0.39)
+const COLOR_OUTDOOR_FLOOR := Color(0.28, 0.62, 0.25)
 const COLOR_OLD_WOOD := Color(0.36, 0.22, 0.12)
 const COLOR_DARK_WOOD := Color(0.24, 0.14, 0.08)
-const COLOR_PAPER_YELLOW := Color(0.86, 0.78, 0.55)
-const COLOR_DUSK_ORANGE := Color(1.0, 0.52, 0.18)
-const COLOR_FLUORESCENT_GREEN := Color(0.28, 1.0, 0.25)
+const COLOR_PAPER_YELLOW := Color(0.88, 0.82, 0.63)
+const COLOR_DUSK_YELLOW := Color(1.0, 0.74, 0.38)
+const COLOR_COOL_SHADOW := Color(0.24, 0.40, 0.38)
+const COLOR_DIRTY_WHITE := Color(0.76, 0.75, 0.66)
 
 var has_read_note_x := false
 var door_b_open := false
@@ -31,8 +32,7 @@ var message_label: Label
 var end_overlay: ColorRect
 var current_interactable: Node3D
 var message_open := false
-var camera_offset := Vector3(0.0, 15.0, 12.0)
-var camera_focus_x := 0.0
+var camera_offset := Vector3(-9.0, 10.0, 9.0)
 
 
 func _ready() -> void:
@@ -80,19 +80,41 @@ func _build_lighting() -> void:
 	var environment := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.24, 0.22, 0.24)
+	env.background_color = Color(0.18, 0.18, 0.19)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.78, 0.66, 0.48)
-	env.ambient_light_energy = 0.55
+	env.ambient_light_color = Color(0.48, 0.50, 0.52)
+	env.ambient_light_energy = 0.85
+	env.tonemap_exposure = 1.0
+	env.tonemap_white = 1.15
+	env.adjustment_enabled = true
+	env.adjustment_brightness = 1.0
+	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 0.96
 	environment.environment = env
 	add_child(environment)
 
 	var light := DirectionalLight3D.new()
 	light.name = "DuskLight"
-	light.light_color = Color(1.0, 0.66, 0.38)
-	light.light_energy = 1.75
-	light.rotation_degrees = Vector3(-42.0, 28.0, 0.0)
+	light.light_color = Color(0.92, 0.90, 0.82)
+	light.light_energy = 2.4
+	light.rotation_degrees = Vector3(-54.0, 38.0, 0.0)
 	add_child(light)
+
+	var room_glow := OmniLight3D.new()
+	room_glow.name = "SoftRoomFill"
+	room_glow.light_color = Color(0.62, 0.66, 0.68)
+	room_glow.light_energy = 0.36
+	room_glow.omni_range = 18.0
+	room_glow.position = Vector3(0.0, 4.2, 4.0)
+	add_child(room_glow)
+
+	var dusk_fill := OmniLight3D.new()
+	dusk_fill.name = "DuskDoorFill"
+	dusk_fill.light_color = Color(1.0, 0.66, 0.34)
+	dusk_fill.light_energy = 0.38
+	dusk_fill.omni_range = 9.0
+	dusk_fill.position = Vector3(3.5, 2.2, -4.8)
+	add_child(dusk_fill)
 
 
 func _build_level() -> void:
@@ -102,7 +124,7 @@ func _build_level() -> void:
 
 	_add_floor(world, "RoomB_CementFloor", Vector3(0.0, -0.06, 8.0), Vector3(10.0, 0.12, 8.0), COLOR_ROOM_B_FLOOR)
 	_add_floor(world, "RoomA_DirtyFloor", Vector3(0.0, -0.06, 0.0), Vector3(10.0, 0.12, 7.0), COLOR_ROOM_A_FLOOR)
-	_add_floor(world, "Outdoor_DuskGround", Vector3(0.0, -0.06, -7.0), Vector3(10.0, 0.12, 6.0), COLOR_OUTDOOR_FLOOR)
+	_add_floor(world, "Outdoor_CementGround", Vector3(0.0, -0.06, -7.0), Vector3(10.0, 0.12, 6.0), COLOR_OUTDOOR_FLOOR)
 
 	_build_walls(world)
 	_add_door(world, "DoorB", "obj_door_b", Vector3(3.5, 1.0, 3.75), Vector3(1.8, 2.0, 0.35), COLOR_OLD_WOOD)
@@ -119,24 +141,24 @@ func _build_level() -> void:
 func _build_walls(parent: Node) -> void:
 	var wall_color := COLOR_WALL
 
-	_add_solid_box(parent, "RoomB_TopWall", Vector3(0.0, 1.0, 12.0), Vector3(10.3, 2.0, 0.35), wall_color)
-	_add_solid_box(parent, "RoomB_LeftWall", Vector3(-5.0, 1.0, 8.0), Vector3(0.35, 2.0, 8.3), wall_color)
-	_add_solid_box(parent, "RoomB_RightWall", Vector3(5.0, 1.0, 8.0), Vector3(0.35, 2.0, 8.3), wall_color)
-	_add_solid_box(parent, "RoomB_BottomWall_Left", Vector3(-1.2, 1.0, 4.0), Vector3(7.6, 2.0, 0.35), wall_color)
-	_add_solid_box(parent, "RoomB_BottomWall_Right", Vector3(4.7, 1.0, 4.0), Vector3(0.6, 2.0, 0.35), wall_color)
+	_add_solid_box(parent, "RoomB_TopWall", Vector3(0.0, 1.35, 12.0), Vector3(10.3, 2.7, 0.35), wall_color)
+	_add_solid_box(parent, "RoomB_LeftWall", Vector3(-5.0, 1.35, 8.0), Vector3(0.35, 2.7, 8.3), wall_color)
+	_add_solid_box(parent, "RoomB_RightWall", Vector3(5.0, 1.35, 8.0), Vector3(0.35, 2.7, 8.3), wall_color)
+	_add_solid_box(parent, "RoomB_BottomWall_Left", Vector3(-1.2, 1.35, 4.0), Vector3(7.6, 2.7, 0.35), wall_color)
+	_add_solid_box(parent, "RoomB_BottomWall_Right", Vector3(4.7, 1.35, 4.0), Vector3(0.6, 2.7, 0.35), wall_color)
 
-	_add_solid_box(parent, "RoomA_LeftWall", Vector3(-5.0, 1.0, 0.0), Vector3(0.35, 2.0, 7.3), wall_color)
-	_add_solid_box(parent, "RoomA_RightWall", Vector3(5.0, 1.0, 0.0), Vector3(0.35, 2.0, 7.3), wall_color)
-	_add_solid_box(parent, "RoomA_TopWall_Left", Vector3(-1.2, 1.0, 3.5), Vector3(7.6, 2.0, 0.35), wall_color)
-	_add_solid_box(parent, "RoomA_TopWall_Right", Vector3(4.7, 1.0, 3.5), Vector3(0.6, 2.0, 0.35), wall_color)
-	_add_solid_box(parent, "RoomA_BottomWall_Left", Vector3(-1.2, 1.0, -3.5), Vector3(7.6, 2.0, 0.35), wall_color)
-	_add_solid_box(parent, "RoomA_BottomWall_Right", Vector3(4.7, 1.0, -3.5), Vector3(0.6, 2.0, 0.35), wall_color)
+	_add_solid_box(parent, "RoomA_LeftWall", Vector3(-5.0, 1.35, 0.0), Vector3(0.35, 2.7, 7.3), wall_color)
+	_add_solid_box(parent, "RoomA_RightWall", Vector3(5.0, 1.35, 0.0), Vector3(0.35, 2.7, 7.3), wall_color)
+	_add_solid_box(parent, "RoomA_TopWall_Left", Vector3(-1.2, 1.35, 3.5), Vector3(7.6, 2.7, 0.35), wall_color)
+	_add_solid_box(parent, "RoomA_TopWall_Right", Vector3(4.7, 1.35, 3.5), Vector3(0.6, 2.7, 0.35), wall_color)
+	_add_solid_box(parent, "RoomA_BottomWall_Left", Vector3(-1.2, 1.35, -3.5), Vector3(7.6, 2.7, 0.35), wall_color)
+	_add_solid_box(parent, "RoomA_BottomWall_Right", Vector3(4.7, 1.35, -3.5), Vector3(0.6, 2.7, 0.35), wall_color)
 
-	_add_solid_box(parent, "Outdoor_LeftBoundary", Vector3(-5.0, 1.0, -7.0), Vector3(0.35, 2.0, 6.3), COLOR_WALL_DARK)
-	_add_solid_box(parent, "Outdoor_RightBoundary", Vector3(5.0, 1.0, -7.0), Vector3(0.35, 2.0, 6.3), COLOR_WALL_DARK)
-	_add_solid_box(parent, "Outdoor_Top_Left", Vector3(-1.2, 1.0, -4.0), Vector3(7.6, 2.0, 0.35), COLOR_WALL_DARK)
-	_add_solid_box(parent, "Outdoor_Top_Right", Vector3(4.7, 1.0, -4.0), Vector3(0.6, 2.0, 0.35), COLOR_WALL_DARK)
-	_add_solid_box(parent, "Outdoor_BottomBoundary", Vector3(0.0, 1.0, -10.0), Vector3(10.3, 2.0, 0.35), COLOR_WALL_DARK)
+	_add_solid_box(parent, "Outdoor_LeftBoundary", Vector3(-5.0, 1.35, -7.0), Vector3(0.35, 2.7, 6.3), COLOR_WALL_DARK)
+	_add_solid_box(parent, "Outdoor_RightBoundary", Vector3(5.0, 1.35, -7.0), Vector3(0.35, 2.7, 6.3), COLOR_WALL_DARK)
+	_add_solid_box(parent, "Outdoor_Top_Left", Vector3(-1.2, 1.35, -4.0), Vector3(7.6, 2.7, 0.35), COLOR_WALL_DARK)
+	_add_solid_box(parent, "Outdoor_Top_Right", Vector3(4.7, 1.35, -4.0), Vector3(0.6, 2.7, 0.35), COLOR_WALL_DARK)
+	_add_solid_box(parent, "Outdoor_BottomBoundary", Vector3(0.0, 1.35, -10.0), Vector3(10.3, 2.7, 0.35), COLOR_WALL_DARK)
 
 
 func _build_player() -> void:
@@ -170,13 +192,12 @@ func _build_camera() -> void:
 	camera = Camera3D.new()
 	camera.name = "TopDownCamera"
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 15.0
+	camera.size = 12.0
 	camera.near = 0.1
 	camera.far = 100.0
-	var focus := _get_camera_focus()
-	camera.position = focus + camera_offset
+	camera.position = _get_camera_target_position()
 	add_child(camera)
-	camera.look_at(focus, Vector3.UP)
+	camera.look_at(player.global_position, Vector3.UP)
 	camera.current = true
 
 
@@ -246,16 +267,6 @@ func _add_note(parent: Node) -> void:
 	mesh.set_surface_override_material(0, _material(COLOR_PAPER_YELLOW))
 	note.add_child(mesh)
 
-	var green_mark := MeshInstance3D.new()
-	green_mark.name = "FluorescentMark"
-	var mark_mesh := BoxMesh.new()
-	mark_mesh.size = Vector3(0.52, 0.025, 0.08)
-	green_mark.mesh = mark_mesh
-	green_mark.position = Vector3(0.08, 0.065, 0.18)
-	green_mark.rotation_degrees.y = 18.0
-	green_mark.set_surface_override_material(0, _emissive_material(COLOR_FLUORESCENT_GREEN, 0.75))
-	note.add_child(green_mark)
-
 	_add_label(note, "发黄纸条", Vector3(0.0, 0.55, 0.0))
 
 
@@ -263,7 +274,7 @@ func _add_cabinet(parent: Node) -> void:
 	var cabinet := _add_solid_box(parent, "CabinetA", Vector3(-3.5, 0.5, 0.5), Vector3(1.2, 1.0, 0.8), COLOR_OLD_WOOD)
 	cabinet.set_meta("interact_id", "obj_cabinet_a")
 	cabinet.add_to_group("interactable")
-	_add_floor(cabinet, "CabinetGreenCrack", Vector3(0.0, 0.18, -0.42), Vector3(0.72, 0.035, 0.035), COLOR_FLUORESCENT_GREEN)
+	_add_floor(cabinet, "CabinetCoolShadowGap", Vector3(0.0, 0.18, -0.42), Vector3(0.72, 0.035, 0.035), COLOR_COOL_SHADOW)
 	_add_label(cabinet, "旧木柜", Vector3(0.0, 0.9, 0.0))
 
 
@@ -278,10 +289,10 @@ func _add_exit(parent: Node) -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(3.0, 0.05, 2.0)
 	mesh.mesh = box
-	mesh.set_surface_override_material(0, _material(Color(0.92, 0.58, 0.2)))
+	mesh.set_surface_override_material(0, _material(Color(0.62, 0.63, 0.56)))
 	exit.add_child(mesh)
-	_add_floor(exit, "FaintGreenEdgeNorth", Vector3(0.0, 0.055, 1.02), Vector3(3.1, 0.035, 0.08), COLOR_FLUORESCENT_GREEN)
-	_add_floor(exit, "FaintGreenEdgeSouth", Vector3(0.0, 0.055, -1.02), Vector3(3.1, 0.035, 0.08), COLOR_FLUORESCENT_GREEN)
+	_add_floor(exit, "WarmExitHighlightNorth", Vector3(0.0, 0.055, 1.02), Vector3(3.1, 0.035, 0.08), COLOR_DUSK_YELLOW)
+	_add_floor(exit, "WarmExitHighlightSouth", Vector3(0.0, 0.055, -1.02), Vector3(3.1, 0.035, 0.08), COLOR_DUSK_YELLOW)
 	_add_label(exit, "门外黄昏", Vector3(0.0, 0.65, 0.0))
 
 
@@ -317,7 +328,7 @@ func _add_door(parent: Node, door_name: String, interact_id: String, pos: Vector
 	var label_text := "里屋门" if door_name == "DoorB" else "出口门"
 	_add_label(door, label_text, Vector3(0.0, 1.45, 0.0))
 	if door_name == "DoorA":
-		_add_floor(door, "LockGreenGleam", Vector3(-0.55, 0.06, -0.2), Vector3(0.12, 0.12, 0.06), COLOR_FLUORESCENT_GREEN)
+		_add_floor(door, "LockCoolShadow", Vector3(-0.55, 0.06, -0.2), Vector3(0.12, 0.12, 0.06), COLOR_COOL_SHADOW)
 	return door
 
 
@@ -327,28 +338,28 @@ func _add_room_b_atmosphere(parent: Node) -> void:
 	_add_floor(parent, "OldTableLegB", Vector3(-3.0, 0.18, 7.5), Vector3(0.12, 0.36, 0.12), COLOR_DARK_WOOD)
 	_add_label_marker(parent, "旧木桌", Vector3(-3.6, 0.88, 7.15))
 
-	_add_floor(parent, "DirtyWindow", Vector3(-4.78, 1.25, 10.15), Vector3(0.08, 0.82, 1.45), Color(0.57, 0.61, 0.58))
+	_add_floor(parent, "DirtyWindow", Vector3(-4.78, 1.25, 10.15), Vector3(0.08, 0.82, 1.45), Color(0.62, 0.66, 0.62))
 	_add_floor(parent, "OldNewspaper", Vector3(1.95, 0.62, 11.78), Vector3(1.05, 0.78, 0.035), Color(0.74, 0.66, 0.47))
 	_add_floor(parent, "RoomB_WastePaperA", Vector3(-1.8, 0.02, 6.1), Vector3(0.55, 0.035, 0.35), Color(0.62, 0.57, 0.46))
 	_add_floor(parent, "RoomB_WastePaperB", Vector3(-2.35, 0.025, 6.35), Vector3(0.42, 0.035, 0.24), Color(0.55, 0.52, 0.43))
-	_add_floor(parent, "RoomB_GreenChalkMark", Vector3(-4.78, 0.68, 5.75), Vector3(0.07, 0.58, 0.16), COLOR_FLUORESCENT_GREEN)
+	_add_floor(parent, "RoomB_CoolShadowPatch", Vector3(-4.78, 0.68, 5.75), Vector3(0.07, 0.58, 0.16), COLOR_COOL_SHADOW)
 
 
 func _add_room_a_atmosphere(parent: Node) -> void:
 	_add_floor(parent, "RoomA_DragMarkA", Vector3(-0.8, 0.015, -0.9), Vector3(2.6, 0.025, 0.16), Color(0.19, 0.16, 0.13))
 	_add_floor(parent, "RoomA_DragMarkB", Vector3(-0.2, 0.016, -1.35), Vector3(1.8, 0.025, 0.12), Color(0.18, 0.15, 0.12))
-	_add_floor(parent, "RoomA_WaterStain", Vector3(4.78, 0.72, 1.45), Vector3(0.07, 1.1, 0.62), Color(0.25, 0.22, 0.17))
-	_add_floor(parent, "DoorA_DuskSeam", Vector3(3.5, 0.54, -3.93), Vector3(1.9, 0.06, 0.08), COLOR_DUSK_ORANGE)
+	_add_floor(parent, "RoomA_WaterStain", Vector3(4.78, 0.72, 1.45), Vector3(0.07, 1.1, 0.62), Color(0.28, 0.34, 0.32))
+	_add_floor(parent, "DoorA_DuskSeam", Vector3(3.5, 0.54, -3.93), Vector3(1.9, 0.06, 0.08), COLOR_DUSK_YELLOW)
 	_add_floor(parent, "CabinetDustPatch", Vector3(-3.5, 0.02, 1.15), Vector3(1.7, 0.035, 0.58), Color(0.48, 0.45, 0.36))
 
 
 func _add_outdoor_atmosphere(parent: Node) -> void:
-	_add_floor(parent, "FadedRoad", Vector3(0.0, 0.015, -8.45), Vector3(2.3, 0.035, 3.0), Color(0.38, 0.34, 0.31))
+	_add_floor(parent, "FadedRoad", Vector3(0.0, 0.015, -8.45), Vector3(2.3, 0.035, 3.0), Color(0.45, 0.46, 0.43))
 	_add_floor(parent, "DistantWallLeft", Vector3(-3.1, 0.55, -9.72), Vector3(3.2, 1.1, 0.16), Color(0.22, 0.24, 0.25))
 	_add_floor(parent, "DistantWallRight", Vector3(3.1, 0.55, -9.72), Vector3(3.2, 1.1, 0.16), Color(0.22, 0.24, 0.25))
 	_add_floor(parent, "TreeShadowA", Vector3(-3.2, 0.02, -7.25), Vector3(1.2, 0.03, 0.28), Color(0.11, 0.18, 0.12))
 	_add_floor(parent, "TreeShadowB", Vector3(2.4, 0.02, -6.6), Vector3(1.45, 0.03, 0.24), Color(0.1, 0.16, 0.12))
-	_add_floor(parent, "RoadGreenCrack", Vector3(1.35, 0.04, -8.95), Vector3(0.75, 0.035, 0.06), COLOR_FLUORESCENT_GREEN)
+	_add_floor(parent, "RoadCoolCrack", Vector3(1.35, 0.04, -8.95), Vector3(0.75, 0.035, 0.06), COLOR_COOL_SHADOW)
 
 
 func _add_label_marker(parent: Node, text: String, pos: Vector3) -> void:
@@ -408,18 +419,15 @@ func _add_label(parent: Node3D, text: String, local_pos: Vector3) -> void:
 	parent.add_child(label)
 
 
-func _update_camera(delta: float) -> void:
-	if player == null or camera == null:
+func _update_camera(_delta: float) -> void:
+	if camera == null:
 		return
 
-	var focus := _get_camera_focus()
-	var target_pos := focus + camera_offset
-	camera.global_position = camera.global_position.lerp(target_pos, clampf(delta * 7.0, 0.0, 1.0))
-	camera.look_at(focus, Vector3.UP)
+	camera.global_position = _get_camera_target_position()
 
 
-func _get_camera_focus() -> Vector3:
-	return Vector3(camera_focus_x, player.global_position.y, player.global_position.z)
+func _get_camera_target_position() -> Vector3:
+	return player.global_position + camera_offset
 
 
 func _update_current_interactable() -> void:
@@ -529,12 +537,4 @@ func _material(color: Color) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = 0.85
-	return mat
-
-
-func _emissive_material(color: Color, energy: float) -> StandardMaterial3D:
-	var mat := _material(color)
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = energy
 	return mat
