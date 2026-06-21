@@ -3,6 +3,7 @@ extends CharacterBody3D
 @export var move_speed: float = 4.6
 
 var can_move := true
+var face_movement := true
 var _last_direction := Vector3.FORWARD
 
 
@@ -25,7 +26,7 @@ func _physics_process(_delta: float) -> void:
 	var direction := _get_screen_relative_direction(input_vector)
 	velocity = direction * move_speed
 
-	if direction.length_squared() > 0.0:
+	if face_movement and direction.length_squared() > 0.0:
 		_last_direction = direction
 		look_at(global_position + _last_direction, Vector3.UP)
 
