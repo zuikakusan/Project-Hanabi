@@ -7,23 +7,37 @@ const EXIT_RANGE := 2.3
 const AIM_MIN_DISTANCE := 0.75
 const SNAP_THROW_TIME := 0.48
 const SNAP_THROW_SPEED := 14.0
-const SNAP_EXPLOSION_RADIUS := 1.8
+const SNAP_EXPLOSION_RADIUS := 0.38
 const CRACKER_THROW_TIME := 0.75
 const CRACKER_THROW_SPEED := 10.0
 const CRACKER_FUSE_TIME := 5.0
 const CRACKER_EXPLOSION_RADIUS := 2.8
+const CRACKER_ROLL_DISTANCE := 0.68
+const CRACKER_ROLL_TIME := 0.46
 const THROW_COOLDOWN := 0.55
 const THROW_GROUND_Y := 0.18
 const THROW_RAY_HEIGHT := 0.35
 const THROW_WALL_PADDING := 0.28
 const THROW_MIN_FLIGHT_TIME := 0.12
+const SNAP_MODEL_LENGTH := 0.26
+const SNAP_MODEL_RADIUS := 0.035
+const CRACKER_MODEL_LENGTH := 0.46
+const CRACKER_MODEL_RADIUS := 0.05
 
 const ITEM_NONE := ""
 const ITEM_SNAP := "snap"
 const ITEM_CRACKER := "cracker"
+const ITEM_LIGHTER := "lighter"
+const ITEM_WHITE_TSHIRT := "white_tshirt"
+const ITEM_GREEN_SHORTS := "green_shorts"
+const ITEM_WHITE_SHOES := "white_shoes"
+const ITEM_BACKPACK_BLOCK := "_backpack_block"
 const SNAP_BOX_CAPACITY := 30
 const CRACKER_BOX_CAPACITY := 25
 const HAND_CAPACITY := 5
+const LIGHTER_MAX_DURABILITY := 100
+const BACKPACK_SLOT_COUNT := 10
+const BACKPACK_COLUMNS := 5
 
 const COLOR_WALL := Color(0.055, 0.055, 0.06)
 const COLOR_WALL_DARK := Color(0.035, 0.035, 0.04)
@@ -58,9 +72,12 @@ var message_open := false
 var camera_offset := Vector3(-9.0, 10.0, 9.0)
 var room_a_reveal_nodes: Array[Node3D] = []
 var outdoor_reveal_nodes: Array[Node3D] = []
-var inventory_slot_names := ["手", "1 左裤袋", "2 右裤袋"]
-var hand_item := ITEM_NONE
-var hand_count := 0
+var inventory_slot_names := ["Q 左口袋", "左手", "右手", "E 右口袋"]
+var left_hand_item := ITEM_LIGHTER
+var left_hand_count := 1
+var left_hand_durability := LIGHTER_MAX_DURABILITY
+var right_hand_item := ITEM_NONE
+var right_hand_count := 0
 var pocket_items := [ITEM_SNAP, ITEM_CRACKER]
 var pocket_counts := [SNAP_BOX_CAPACITY, CRACKER_BOX_CAPACITY]
 var pocket_capacities := [SNAP_BOX_CAPACITY, CRACKER_BOX_CAPACITY]
@@ -79,9 +96,27 @@ var inventory_hint_time := 0.0
 var targets: Array[Node3D] = []
 var projectiles: Array[Dictionary] = []
 var explosions: Array[Dictionary] = []
+var backpack_open := false
+var backpack_overlay: PanelContainer
+var overlay_slot_panels := {}
+var overlay_slot_title_labels := {}
+var overlay_slot_item_labels := {}
+var overlay_slot_detail_labels := {}
+var backpack_slots: Array[Dictionary] = []
+var equipped_items := {
+	"head": {},
+	"top": {"id": ITEM_WHITE_TSHIRT, "count": 1},
+	"bottom": {"id": ITEM_GREEN_SHORTS, "count": 1},
+	"shoes": {"id": ITEM_WHITE_SHOES, "count": 1},
+}
+var drag_payload := {}
+var drag_source_id := ""
+var drag_ghost: PanelContainer
+var drag_ghost_label: Label
 
 
 func _ready() -> void:
+	_init_inventory_data()
 	_build_lighting()
 	_build_level()
 	_build_player()
@@ -126,21 +161,28 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_tree().quit()
 			return
 
+		if key_event.keycode == KEY_TAB and not message_open:
+			_toggle_backpack()
+			return
+
 		if message_open:
-			if key_event.keycode == KEY_E or key_event.keycode == KEY_SPACE or key_event.keycode == KEY_ENTER:
+			if key_event.keycode == KEY_F or key_event.keycode == KEY_SPACE or key_event.keycode == KEY_ENTER:
 				_hide_message()
 			return
 
-		if key_event.keycode == KEY_E and current_interactable != null:
+		if backpack_open:
+			return
+
+		if key_event.keycode == KEY_F and current_interactable != null:
 			_interact_with(current_interactable)
-		elif key_event.keycode == KEY_1:
+		elif key_event.keycode == KEY_Q:
 			_take_from_pocket(0)
-		elif key_event.keycode == KEY_2:
+		elif key_event.keycode == KEY_E:
 			_take_from_pocket(1)
 		elif key_event.keycode == KEY_SHIFT or key_event.physical_keycode == KEY_SHIFT:
 			_return_hand_to_pocket()
 
-	if event is InputEventMouseButton and not message_open and not demo_finished:
+	if event is InputEventMouseButton and not message_open and not demo_finished and not backpack_open:
 		var mouse_event := event as InputEventMouseButton
 		if not mouse_event.pressed:
 			return
@@ -318,7 +360,7 @@ func _build_ui() -> void:
 
 	prompt_label = Label.new()
 	prompt_label.name = "InteractPrompt"
-	prompt_label.text = "按 E 互动"
+	prompt_label.text = "按 F 互动"
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prompt_label.add_theme_font_size_override("font_size", 26)
 	prompt_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.55))
@@ -346,15 +388,20 @@ func _build_ui() -> void:
 	inventory_bar.anchor_right = 0.5
 	inventory_bar.anchor_top = 1.0
 	inventory_bar.anchor_bottom = 1.0
-	inventory_bar.offset_left = -190.0
-	inventory_bar.offset_right = 190.0
+	inventory_bar.offset_left = -310.0
+	inventory_bar.offset_right = 310.0
 	inventory_bar.offset_top = -122.0
 	inventory_bar.offset_bottom = -20.0
 	inventory_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	inventory_bar.add_theme_constant_override("separation", 14)
+	inventory_bar.add_theme_constant_override("separation", 22)
 	canvas.add_child(inventory_bar)
 
 	for i in range(inventory_slot_names.size()):
+		if i == 1 or i == 3:
+			var spacer := Control.new()
+			spacer.custom_minimum_size = Vector2(28, 1)
+			inventory_bar.add_child(spacer)
+
 		var slot := PanelContainer.new()
 		slot.name = "InventorySlot%d" % i
 		slot.custom_minimum_size = Vector2(112, 96)
@@ -405,6 +452,193 @@ func _build_ui() -> void:
 	message_label.add_theme_font_size_override("font_size", 24)
 	message_label.add_theme_color_override("font_color", Color(0.94, 0.93, 0.86))
 	message_panel.add_child(message_label)
+
+	_build_backpack_overlay(canvas)
+
+
+func _build_backpack_overlay(canvas: CanvasLayer) -> void:
+	backpack_overlay = PanelContainer.new()
+	backpack_overlay.name = "BackpackOverlay"
+	backpack_overlay.anchor_left = 0.08
+	backpack_overlay.anchor_right = 0.92
+	backpack_overlay.anchor_top = 0.08
+	backpack_overlay.anchor_bottom = 0.86
+	backpack_overlay.visible = false
+	backpack_overlay.add_theme_stylebox_override("panel", _inventory_window_style())
+	canvas.add_child(backpack_overlay)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 22)
+	margin.add_theme_constant_override("margin_right", 22)
+	margin.add_theme_constant_override("margin_top", 18)
+	margin.add_theme_constant_override("margin_bottom", 18)
+	backpack_overlay.add_child(margin)
+
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 28)
+	margin.add_child(columns)
+
+	var character_panel := PanelContainer.new()
+	character_panel.custom_minimum_size = Vector2(520, 470)
+	character_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	character_panel.add_theme_stylebox_override("panel", _inventory_section_style())
+	columns.add_child(character_panel)
+
+	var character_margin := MarginContainer.new()
+	character_margin.add_theme_constant_override("margin_left", 16)
+	character_margin.add_theme_constant_override("margin_right", 16)
+	character_margin.add_theme_constant_override("margin_top", 14)
+	character_margin.add_theme_constant_override("margin_bottom", 14)
+	character_panel.add_child(character_margin)
+
+	var character_root := VBoxContainer.new()
+	character_root.add_theme_constant_override("separation", 12)
+	character_margin.add_child(character_root)
+
+	var character_title := Label.new()
+	character_title.text = "人物"
+	character_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	character_title.add_theme_font_size_override("font_size", 23)
+	character_title.add_theme_color_override("font_color", Color(0.92, 0.90, 0.82))
+	character_root.add_child(character_title)
+
+	var character_body := HBoxContainer.new()
+	character_body.add_theme_constant_override("separation", 18)
+	character_root.add_child(character_body)
+
+	var clothing_column := VBoxContainer.new()
+	clothing_column.custom_minimum_size = Vector2(118, 0)
+	clothing_column.add_theme_constant_override("separation", 9)
+	character_body.add_child(clothing_column)
+	_create_overlay_slot(clothing_column, "equip_head", "头部", Vector2(112, 74))
+	_create_overlay_slot(clothing_column, "equip_top", "上装", Vector2(112, 74))
+	_create_overlay_slot(clothing_column, "equip_bottom", "下装", Vector2(112, 74))
+	_create_overlay_slot(clothing_column, "equip_shoes", "鞋", Vector2(112, 74))
+
+	var body_panel := PanelContainer.new()
+	body_panel.custom_minimum_size = Vector2(150, 336)
+	body_panel.add_theme_stylebox_override("panel", _body_silhouette_style())
+	character_body.add_child(body_panel)
+
+	var body_label := Label.new()
+	body_label.text = "人物\n形象"
+	body_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	body_label.add_theme_font_size_override("font_size", 24)
+	body_label.add_theme_color_override("font_color", Color(0.70, 0.73, 0.68))
+	body_panel.add_child(body_label)
+
+	var carry_column := VBoxContainer.new()
+	carry_column.custom_minimum_size = Vector2(150, 0)
+	carry_column.add_theme_constant_override("separation", 10)
+	character_body.add_child(carry_column)
+
+	var hands_label := Label.new()
+	hands_label.text = "手上道具"
+	hands_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hands_label.add_theme_font_size_override("font_size", 17)
+	carry_column.add_child(hands_label)
+	_create_overlay_slot(carry_column, "hand_left", "左手", Vector2(132, 72))
+	_create_overlay_slot(carry_column, "hand_right", "右手", Vector2(132, 72))
+
+	var pocket_spacer := Control.new()
+	pocket_spacer.custom_minimum_size = Vector2(1, 36)
+	carry_column.add_child(pocket_spacer)
+
+	var pockets_label := Label.new()
+	pockets_label.text = "下装口袋"
+	pockets_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pockets_label.add_theme_font_size_override("font_size", 17)
+	carry_column.add_child(pockets_label)
+	_create_overlay_slot(carry_column, "pocket_left", "左口袋", Vector2(132, 72))
+	_create_overlay_slot(carry_column, "pocket_right", "右口袋", Vector2(132, 72))
+
+	var bag_panel := PanelContainer.new()
+	bag_panel.custom_minimum_size = Vector2(470, 470)
+	bag_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bag_panel.add_theme_stylebox_override("panel", _inventory_section_style())
+	columns.add_child(bag_panel)
+
+	var bag_margin := MarginContainer.new()
+	bag_margin.add_theme_constant_override("margin_left", 16)
+	bag_margin.add_theme_constant_override("margin_right", 16)
+	bag_margin.add_theme_constant_override("margin_top", 14)
+	bag_margin.add_theme_constant_override("margin_bottom", 14)
+	bag_panel.add_child(bag_margin)
+
+	var bag_root := VBoxContainer.new()
+	bag_root.add_theme_constant_override("separation", 14)
+	bag_margin.add_child(bag_root)
+
+	var bag_title := Label.new()
+	bag_title.text = "背包"
+	bag_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bag_title.add_theme_font_size_override("font_size", 23)
+	bag_title.add_theme_color_override("font_color", Color(0.92, 0.90, 0.82))
+	bag_root.add_child(bag_title)
+
+	var bag_grid := GridContainer.new()
+	bag_grid.columns = BACKPACK_COLUMNS
+	bag_grid.add_theme_constant_override("h_separation", 10)
+	bag_grid.add_theme_constant_override("v_separation", 10)
+	bag_root.add_child(bag_grid)
+
+	for i in range(BACKPACK_SLOT_COUNT):
+		_create_overlay_slot(bag_grid, "bag_%d" % i, "%02d" % [i + 1], Vector2(78, 78))
+
+	drag_ghost = PanelContainer.new()
+	drag_ghost.name = "DragGhost"
+	drag_ghost.visible = false
+	drag_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drag_ghost.add_theme_stylebox_override("panel", _inventory_slot_style(true))
+	canvas.add_child(drag_ghost)
+
+	drag_ghost_label = Label.new()
+	drag_ghost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	drag_ghost_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	drag_ghost_label.add_theme_font_size_override("font_size", 17)
+	drag_ghost_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.74))
+	drag_ghost.add_child(drag_ghost_label)
+
+
+func _create_overlay_slot(parent: Node, slot_id: String, title: String, min_size: Vector2) -> PanelContainer:
+	var slot := PanelContainer.new()
+	slot.name = slot_id
+	slot.custom_minimum_size = min_size
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	slot.add_theme_stylebox_override("panel", _inventory_slot_style(false))
+	parent.add_child(slot)
+	overlay_slot_panels[slot_id] = slot
+	slot.gui_input.connect(_on_overlay_slot_gui_input.bind(slot_id))
+
+	var contents := VBoxContainer.new()
+	contents.alignment = BoxContainer.ALIGNMENT_CENTER
+	slot.add_child(contents)
+
+	var title_label := Label.new()
+	title_label.text = title
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_label.add_theme_font_size_override("font_size", 14)
+	title_label.add_theme_color_override("font_color", Color(0.75, 0.77, 0.72))
+	contents.add_child(title_label)
+	overlay_slot_title_labels[slot_id] = title_label
+
+	var item_label := Label.new()
+	item_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	item_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	item_label.add_theme_font_size_override("font_size", 17)
+	item_label.add_theme_color_override("font_color", Color(0.93, 0.91, 0.84))
+	contents.add_child(item_label)
+	overlay_slot_item_labels[slot_id] = item_label
+
+	var detail_label := Label.new()
+	detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	detail_label.add_theme_font_size_override("font_size", 13)
+	detail_label.add_theme_color_override("font_color", Color(0.72, 0.74, 0.68))
+	contents.add_child(detail_label)
+	overlay_slot_detail_labels[slot_id] = detail_label
+
+	return slot
 
 
 func _add_note(parent: Node) -> void:
@@ -668,7 +902,7 @@ func _update_cracker_fuse(delta: float) -> void:
 	cracker_fuse -= delta
 	if cracker_fuse <= 0.0:
 		_create_explosion(player.global_position, CRACKER_EXPLOSION_RADIUS)
-		_clear_hand()
+		_clear_right_hand()
 		_show_inventory_hint("擦炮在手边炸了。")
 
 
@@ -694,6 +928,24 @@ func _update_projectiles(delta: float) -> void:
 				projectile["moving"] = false
 				node.global_position = landing_position
 
+		elif bool(projectile.get("rolling", false)):
+			projectile["roll_age"] = float(projectile["roll_age"]) + delta
+			var roll_progress := clampf(float(projectile["roll_age"]) / float(projectile["roll_time"]), 0.0, 1.0)
+			var eased_progress := 1.0 - pow(1.0 - roll_progress, 2.0)
+			var roll_start: Vector3 = projectile["roll_start"]
+			var roll_target: Vector3 = projectile["roll_target"]
+			node.global_position = roll_start.lerp(roll_target, eased_progress)
+			node.rotate_object_local(Vector3.RIGHT, delta * 11.0)
+			if roll_progress >= 1.0:
+				projectile["rolling"] = false
+				node.global_position = roll_target
+
+		if not bool(projectile.get("can_explode", true)):
+			if not bool(projectile["moving"]) and not bool(projectile.get("rolling", false)):
+				_make_projectile_pickup(projectile)
+				projectiles.remove_at(i)
+			continue
+
 		projectile["fuse"] = float(projectile["fuse"]) - delta
 		if float(projectile["fuse"]) <= 0.0:
 			_create_explosion(node.global_position, float(projectile["radius"]))
@@ -716,40 +968,110 @@ func _update_explosions(delta: float) -> void:
 
 
 func _update_inventory_ui() -> void:
-	if inventory_panels.size() < 3:
+	if inventory_panels.size() < 4:
 		return
 
-	inventory_panels[0].add_theme_stylebox_override("panel", _slot_style(true))
+	inventory_panels[0].add_theme_stylebox_override("panel", _slot_style(false))
 	inventory_slot_labels[0].text = inventory_slot_names[0]
-	inventory_item_labels[0].text = _hand_display_text()
-	inventory_detail_labels[0].text = _hand_detail_text()
+	if _has_pants_pockets():
+		inventory_item_labels[0].text = _box_display_name(String(pocket_items[0]))
+		inventory_detail_labels[0].text = "%d/%d" % [int(pocket_counts[0]), int(pocket_capacities[0])]
+	else:
+		inventory_item_labels[0].text = "无口袋"
+		inventory_detail_labels[0].text = ""
 
-	for pocket_index in range(pocket_items.size()):
-		var slot_index := pocket_index + 1
-		var item := String(pocket_items[pocket_index])
-		inventory_panels[slot_index].add_theme_stylebox_override("panel", _slot_style(false))
-		inventory_slot_labels[slot_index].text = inventory_slot_names[slot_index]
-		inventory_item_labels[slot_index].text = _box_display_name(item)
-		inventory_detail_labels[slot_index].text = "%d/%d" % [int(pocket_counts[pocket_index]), int(pocket_capacities[pocket_index])]
+	inventory_panels[1].add_theme_stylebox_override("panel", _slot_style(false))
+	inventory_slot_labels[1].text = inventory_slot_names[1]
+	inventory_item_labels[1].text = _hand_display_text(left_hand_item, left_hand_count)
+	inventory_detail_labels[1].text = _hand_detail_text(left_hand_item, left_hand_count, false)
+
+	inventory_panels[2].add_theme_stylebox_override("panel", _slot_style(true))
+	inventory_slot_labels[2].text = inventory_slot_names[2]
+	inventory_item_labels[2].text = _hand_display_text(right_hand_item, right_hand_count)
+	inventory_detail_labels[2].text = _hand_detail_text(right_hand_item, right_hand_count, true)
+
+	inventory_panels[3].add_theme_stylebox_override("panel", _slot_style(false))
+	inventory_slot_labels[3].text = inventory_slot_names[3]
+	if _has_pants_pockets():
+		inventory_item_labels[3].text = _box_display_name(String(pocket_items[1]))
+		inventory_detail_labels[3].text = "%d/%d" % [int(pocket_counts[1]), int(pocket_capacities[1])]
+	else:
+		inventory_item_labels[3].text = "无口袋"
+		inventory_detail_labels[3].text = ""
 
 	if inventory_hint_time > 0.0:
 		inventory_status_label.text = inventory_hint_text
 	else:
-		inventory_status_label.text = "1 取摔炮  2 取擦炮  Shift 放回  左键全扔  右键点火"
+		inventory_status_label.text = "Q 左口袋  E 右口袋  Tab 背包  F 互动  Shift 放回右手"
+
+	_update_backpack_overlay_ui()
 
 
-func _hand_display_text() -> String:
-	if hand_count <= 0:
+func _update_backpack_overlay_ui() -> void:
+	if backpack_overlay == null:
+		return
+
+	_set_overlay_slot_item("equip_head", _equipment_slot_title("head"), _get_equipped_item("head"))
+	_set_overlay_slot_item("equip_top", _equipment_slot_title("top"), _get_equipped_item("top"))
+	_set_overlay_slot_item("equip_bottom", _equipment_slot_title("bottom"), _get_equipped_item("bottom"))
+	_set_overlay_slot_item("equip_shoes", _equipment_slot_title("shoes"), _get_equipped_item("shoes"))
+	_set_overlay_slot_item("hand_left", "左手", _left_hand_item_data())
+	_set_overlay_slot_item("hand_right", "右手", _right_hand_item_data())
+
+	var pockets_visible := _has_pants_pockets()
+	if overlay_slot_panels.has("pocket_left"):
+		(overlay_slot_panels["pocket_left"] as Control).visible = pockets_visible
+	if overlay_slot_panels.has("pocket_right"):
+		(overlay_slot_panels["pocket_right"] as Control).visible = pockets_visible
+	if pockets_visible:
+		_set_overlay_slot_item("pocket_left", "左口袋", _pocket_item_data(0))
+		_set_overlay_slot_item("pocket_right", "右口袋", _pocket_item_data(1))
+
+	for i in range(BACKPACK_SLOT_COUNT):
+		_set_overlay_slot_item("bag_%d" % i, "%02d" % [i + 1], backpack_slots[i])
+
+	_update_drag_ghost()
+
+
+func _set_overlay_slot_item(slot_id: String, title: String, item: Dictionary) -> void:
+	if not overlay_slot_title_labels.has(slot_id):
+		return
+
+	(overlay_slot_title_labels[slot_id] as Label).text = title
+	var item_label := overlay_slot_item_labels[slot_id] as Label
+	var detail_label := overlay_slot_detail_labels[slot_id] as Label
+	var panel := overlay_slot_panels[slot_id] as PanelContainer
+	var is_active := slot_id == "hand_right" or (not drag_payload.is_empty() and drag_source_id == slot_id)
+	panel.add_theme_stylebox_override("panel", _inventory_slot_style(is_active))
+
+	if item.is_empty():
+		item_label.text = "空"
+		detail_label.text = ""
+		return
+
+	if String(item.get("id", "")) == ITEM_BACKPACK_BLOCK:
+		item_label.text = "占用"
+		detail_label.text = ""
+		return
+
+	item_label.text = _item_data_display_name(item)
+	detail_label.text = _item_data_detail(item)
+
+
+func _hand_display_text(item: String, count: int) -> String:
+	if count <= 0 or item == ITEM_NONE:
 		return "空手"
-	return "%s x%d" % [_item_display_name(hand_item), hand_count]
+	return "%s x%d" % [_item_display_name(item), count]
 
 
-func _hand_detail_text() -> String:
-	if hand_count <= 0:
-		return "最多 5 个"
-	if hand_item == ITEM_CRACKER and cracker_lit:
+func _hand_detail_text(item: String, count: int, is_right_hand: bool) -> String:
+	if count <= 0 or item == ITEM_NONE:
+		return "取出物" if is_right_hand else "空"
+	if item == ITEM_LIGHTER:
+		return "耐久 %d%%" % left_hand_durability
+	if item == ITEM_CRACKER and is_right_hand and cracker_lit:
 		return "倒计时 %.1f" % maxf(cracker_fuse, 0.0)
-	if hand_item == ITEM_CRACKER:
+	if item == ITEM_CRACKER:
 		return "右键点火"
 	return "左键全扔"
 
@@ -758,8 +1080,462 @@ func _box_display_name(item: String) -> String:
 	return "%s盒" % _item_display_name(item)
 
 
+func _init_inventory_data() -> void:
+	backpack_slots.clear()
+	for _i in range(BACKPACK_SLOT_COUNT):
+		backpack_slots.append({})
+
+
+func _toggle_backpack() -> void:
+	backpack_open = not backpack_open
+	if backpack_overlay != null:
+		backpack_overlay.visible = backpack_open
+	if not backpack_open:
+		_clear_drag()
+	if player != null:
+		player.set("can_move", not backpack_open and not message_open and not demo_finished)
+
+
+func _on_overlay_slot_gui_input(event: InputEvent, slot_id: String) -> void:
+	if not backpack_open or not (event is InputEventMouseButton):
+		return
+
+	var mouse_event := event as InputEventMouseButton
+	if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	get_viewport().set_input_as_handled()
+	if drag_payload.is_empty():
+		_start_drag_from_slot(slot_id)
+	else:
+		_drop_drag_to_slot(slot_id)
+
+
+func _start_drag_from_slot(slot_id: String) -> void:
+	var item := _get_draggable_source_item(slot_id)
+	if item.is_empty():
+		_show_inventory_hint("这里没有可以放进背包的东西。")
+		return
+
+	if slot_id.begins_with("bag_"):
+		slot_id = _canonical_bag_slot_id(slot_id)
+
+	if slot_id == "hand_right" and cracker_lit:
+		_show_inventory_hint("点着的擦炮不能放进背包。")
+		return
+
+	drag_payload = item.duplicate(true)
+	drag_source_id = slot_id
+	if drag_ghost_label != null:
+		drag_ghost_label.text = _item_data_display_name(drag_payload)
+	_update_drag_ghost()
+
+
+func _drop_drag_to_slot(slot_id: String) -> void:
+	if slot_id == drag_source_id:
+		_clear_drag()
+		return
+
+	if slot_id.begins_with("bag_"):
+		var slot_index := int(slot_id.substr(4))
+		if _place_drag_payload_in_backpack(slot_index):
+			_remove_drag_source_after_drop()
+			_show_inventory_hint("%s放进背包。" % _item_data_display_name(drag_payload))
+			_clear_drag()
+	else:
+		if _place_drag_payload_in_character_slot(slot_id):
+			_remove_drag_source_after_drop()
+			_show_inventory_hint("%s已装备。" % _item_data_display_name(drag_payload))
+			_clear_drag()
+
+
+func _get_draggable_source_item(slot_id: String) -> Dictionary:
+	if slot_id.begins_with("bag_"):
+		var slot_index := _canonical_bag_slot_index(int(slot_id.substr(4)))
+		if slot_index < 0:
+			return {}
+		return backpack_slots[slot_index]
+
+	match slot_id:
+		"equip_head":
+			return _get_equipped_item("head")
+		"equip_top":
+			return _get_equipped_item("top")
+		"equip_bottom":
+			return _get_equipped_item("bottom")
+		"equip_shoes":
+			return _get_equipped_item("shoes")
+		"hand_left":
+			return _left_hand_item_data()
+		"hand_right":
+			return _right_hand_item_data()
+		"pocket_left":
+			if not _has_pants_pockets():
+				return {}
+			return _pocket_item_data(0)
+		"pocket_right":
+			if not _has_pants_pockets():
+				return {}
+			return _pocket_item_data(1)
+		_:
+			return {}
+
+
+func _place_drag_payload_in_backpack(slot_index: int) -> bool:
+	var reserved: Array[int] = []
+	if not _can_place_item_in_backpack(drag_payload, slot_index, reserved):
+		_show_inventory_hint("这个位置放不下。")
+		return false
+
+	var extra_items: Array[Dictionary] = []
+	if drag_source_id == "equip_bottom":
+		extra_items = _pocket_items_for_auto_store()
+
+	var extra_placements: Array[int] = []
+	_reserve_item_indices(drag_payload, slot_index, reserved)
+	for extra_item in extra_items:
+		var extra_slot := _find_free_backpack_slot(extra_item, reserved)
+		if extra_slot < 0:
+			_show_inventory_hint("背包空间不够，裤子和口袋里的东西放不下。")
+			return false
+		extra_placements.append(extra_slot)
+		_reserve_item_indices(extra_item, extra_slot, reserved)
+
+	_place_item_in_backpack(drag_payload, slot_index)
+	for i in range(extra_items.size()):
+		_place_item_in_backpack(extra_items[i], extra_placements[i])
+	return true
+
+
+func _place_drag_payload_in_character_slot(slot_id: String) -> bool:
+	var item_id := String(drag_payload.get("id", ""))
+	match slot_id:
+		"equip_head":
+			_show_inventory_hint("现在还没有头部装备。")
+			return false
+		"equip_top":
+			return _equip_dragged_item("top", ITEM_WHITE_TSHIRT)
+		"equip_bottom":
+			return _equip_dragged_item("bottom", ITEM_GREEN_SHORTS)
+		"equip_shoes":
+			return _equip_dragged_item("shoes", ITEM_WHITE_SHOES)
+		"hand_left":
+			if item_id != ITEM_LIGHTER:
+				_show_inventory_hint("左手目前只能装备打火机。")
+				return false
+			if left_hand_count > 0:
+				_show_inventory_hint("左手已经有东西了。")
+				return false
+			left_hand_item = ITEM_LIGHTER
+			left_hand_count = int(drag_payload.get("count", 1))
+			left_hand_durability = int(drag_payload.get("durability", LIGHTER_MAX_DURABILITY))
+			return true
+		"hand_right":
+			if item_id != ITEM_SNAP and item_id != ITEM_CRACKER:
+				_show_inventory_hint("右手只能拿爆竹。")
+				return false
+			if drag_payload.has("capacity"):
+				_show_inventory_hint("整盒爆竹请放回口袋。")
+				return false
+			var incoming_count := int(drag_payload.get("count", 1))
+			if right_hand_count > 0 and right_hand_item != item_id:
+				_show_inventory_hint("右手已经拿着别的东西。")
+				return false
+			if right_hand_count + incoming_count > HAND_CAPACITY:
+				_show_inventory_hint("右手最多拿 %d 个。" % HAND_CAPACITY)
+				return false
+			right_hand_item = item_id
+			right_hand_count += incoming_count
+			return true
+		"pocket_left":
+			return _place_dragged_item_in_pocket(0, ITEM_SNAP)
+		"pocket_right":
+			return _place_dragged_item_in_pocket(1, ITEM_CRACKER)
+		_:
+			_show_inventory_hint("不能放到这里。")
+			return false
+
+
+func _equip_dragged_item(slot_name: String, expected_item: String) -> bool:
+	var item_id := String(drag_payload.get("id", ""))
+	if item_id != expected_item:
+		_show_inventory_hint("这个装备不能放到这个位置。")
+		return false
+	if not _get_equipped_item(slot_name).is_empty():
+		_show_inventory_hint("这个位置已经穿着装备。")
+		return false
+	equipped_items[slot_name] = drag_payload.duplicate(true)
+	return true
+
+
+func _place_dragged_item_in_pocket(pocket_index: int, expected_item: String) -> bool:
+	if not _has_pants_pockets():
+		_show_inventory_hint("现在没有可用口袋。")
+		return false
+	var item_id := String(drag_payload.get("id", ""))
+	if item_id != expected_item:
+		_show_inventory_hint("这个口袋不放这种东西。")
+		return false
+	if int(pocket_counts[pocket_index]) > 0:
+		_show_inventory_hint("这个口袋已经有东西。")
+		return false
+
+	pocket_items[pocket_index] = item_id
+	pocket_counts[pocket_index] = int(drag_payload.get("count", 1))
+	pocket_capacities[pocket_index] = int(drag_payload.get("capacity", _default_capacity_for_item(item_id)))
+	return true
+
+
+func _can_place_item_in_backpack(item: Dictionary, slot_index: int, reserved: Array[int]) -> bool:
+	var item_size := _item_data_size(item)
+	if slot_index < 0 or slot_index >= BACKPACK_SLOT_COUNT:
+		return false
+	if slot_index % BACKPACK_COLUMNS + item_size > BACKPACK_COLUMNS:
+		return false
+	if slot_index + item_size > BACKPACK_SLOT_COUNT:
+		return false
+
+	for offset in range(item_size):
+		var check_index := slot_index + offset
+		if reserved.has(check_index):
+			return false
+		if not backpack_slots[check_index].is_empty():
+			return false
+	return true
+
+
+func _reserve_item_indices(item: Dictionary, slot_index: int, reserved: Array[int]) -> void:
+	for offset in range(_item_data_size(item)):
+		reserved.append(slot_index + offset)
+
+
+func _find_free_backpack_slot(item: Dictionary, reserved: Array[int]) -> int:
+	for i in range(BACKPACK_SLOT_COUNT):
+		if _can_place_item_in_backpack(item, i, reserved):
+			return i
+	return -1
+
+
+func _place_item_in_backpack(item: Dictionary, slot_index: int) -> void:
+	var item_size := _item_data_size(item)
+	backpack_slots[slot_index] = item.duplicate(true)
+	for offset in range(1, item_size):
+		backpack_slots[slot_index + offset] = {
+			"id": ITEM_BACKPACK_BLOCK,
+			"parent": slot_index,
+		}
+
+
+func _remove_drag_source_after_drop() -> void:
+	if drag_source_id.begins_with("bag_"):
+		_clear_backpack_item_at(int(drag_source_id.substr(4)))
+		return
+
+	match drag_source_id:
+		"equip_head":
+			equipped_items["head"] = {}
+		"equip_top":
+			equipped_items["top"] = {}
+		"equip_bottom":
+			equipped_items["bottom"] = {}
+			pocket_counts[0] = 0
+			pocket_counts[1] = 0
+		"equip_shoes":
+			equipped_items["shoes"] = {}
+		"hand_left":
+			_clear_left_hand()
+		"hand_right":
+			_clear_right_hand()
+		"pocket_left":
+			pocket_counts[0] = 0
+		"pocket_right":
+			pocket_counts[1] = 0
+
+
+func _canonical_bag_slot_id(slot_id: String) -> String:
+	if not slot_id.begins_with("bag_"):
+		return slot_id
+	var index := _canonical_bag_slot_index(int(slot_id.substr(4)))
+	if index < 0:
+		return slot_id
+	return "bag_%d" % index
+
+
+func _canonical_bag_slot_index(slot_index: int) -> int:
+	if slot_index < 0 or slot_index >= BACKPACK_SLOT_COUNT:
+		return -1
+	var item := backpack_slots[slot_index]
+	if item.is_empty():
+		return -1
+	if String(item.get("id", "")) == ITEM_BACKPACK_BLOCK:
+		return int(item.get("parent", -1))
+	return slot_index
+
+
+func _clear_backpack_item_at(slot_index: int) -> void:
+	var source_index := _canonical_bag_slot_index(slot_index)
+	if source_index < 0:
+		return
+	var item_size := _item_data_size(backpack_slots[source_index])
+	for offset in range(item_size):
+		var clear_index := source_index + offset
+		if clear_index >= 0 and clear_index < BACKPACK_SLOT_COUNT:
+			backpack_slots[clear_index] = {}
+
+
+func _clear_drag() -> void:
+	drag_payload = {}
+	drag_source_id = ""
+	if drag_ghost != null:
+		drag_ghost.visible = false
+
+
+func _update_drag_ghost() -> void:
+	if drag_ghost == null:
+		return
+	if drag_payload.is_empty() or not backpack_open:
+		drag_ghost.visible = false
+		return
+
+	drag_ghost.visible = true
+	drag_ghost.position = get_viewport().get_mouse_position() + Vector2(16, 16)
+	drag_ghost.custom_minimum_size = Vector2(124, 42)
+	if drag_ghost_label != null:
+		drag_ghost_label.text = _item_data_display_name(drag_payload)
+
+
+func _pocket_items_for_auto_store() -> Array[Dictionary]:
+	var items: Array[Dictionary] = []
+	for i in range(pocket_items.size()):
+		var item := _pocket_item_data(i)
+		if not item.is_empty():
+			items.append(item)
+	return items
+
+
+func _get_equipped_item(slot_name: String) -> Dictionary:
+	var item: Dictionary = equipped_items.get(slot_name, {})
+	return item
+
+
+func _equipment_slot_title(slot_name: String) -> String:
+	match slot_name:
+		"head":
+			return "头部"
+		"top":
+			return "上装"
+		"bottom":
+			return "下装"
+		"shoes":
+			return "鞋"
+		_:
+			return slot_name
+
+
+func _left_hand_item_data() -> Dictionary:
+	if left_hand_count <= 0 or left_hand_item == ITEM_NONE:
+		return {}
+	var item := {"id": left_hand_item, "count": left_hand_count}
+	if left_hand_item == ITEM_LIGHTER:
+		item["durability"] = left_hand_durability
+	return item
+
+
+func _right_hand_item_data() -> Dictionary:
+	if right_hand_count <= 0 or right_hand_item == ITEM_NONE:
+		return {}
+	return {"id": right_hand_item, "count": right_hand_count}
+
+
+func _pocket_item_data(pocket_index: int) -> Dictionary:
+	if pocket_index < 0 or pocket_index >= pocket_items.size():
+		return {}
+	if int(pocket_counts[pocket_index]) <= 0:
+		return {}
+	return {
+		"id": String(pocket_items[pocket_index]),
+		"count": int(pocket_counts[pocket_index]),
+		"capacity": int(pocket_capacities[pocket_index]),
+	}
+
+
+func _has_pants_pockets() -> bool:
+	var bottom_item := _get_equipped_item("bottom")
+	return not bottom_item.is_empty() and String(bottom_item.get("id", "")) == ITEM_GREEN_SHORTS
+
+
+func _item_data_size(item: Dictionary) -> int:
+	var item_id := String(item.get("id", ""))
+	match item_id:
+		ITEM_WHITE_TSHIRT, ITEM_GREEN_SHORTS, ITEM_WHITE_SHOES:
+			return 2
+		_:
+			return 1
+
+
+func _default_capacity_for_item(item_id: String) -> int:
+	match item_id:
+		ITEM_SNAP:
+			return SNAP_BOX_CAPACITY
+		ITEM_CRACKER:
+			return CRACKER_BOX_CAPACITY
+		_:
+			return maxi(1, int(drag_payload.get("count", 1)))
+
+
+func _item_data_display_name(item: Dictionary) -> String:
+	if item.is_empty():
+		return "空"
+
+	var item_id := String(item.get("id", ""))
+	if item_id == ITEM_BACKPACK_BLOCK:
+		return "占用"
+	if item.has("capacity"):
+		return _box_display_name(item_id)
+	return _item_display_name(item_id)
+
+
+func _item_data_detail(item: Dictionary) -> String:
+	if item.is_empty():
+		return ""
+
+	var item_id := String(item.get("id", ""))
+	if item_id == ITEM_BACKPACK_BLOCK:
+		return ""
+	if item_id == ITEM_LIGHTER:
+		return "耐久 %d%%" % int(item.get("durability", 0))
+	if item.has("capacity"):
+		return "%d/%d" % [int(item.get("count", 0)), int(item.get("capacity", 0))]
+	if int(item.get("count", 1)) > 1:
+		return "数量 %d" % int(item.get("count", 1))
+	if _item_data_size(item) > 1:
+		return "占 2 格"
+	return ""
+
+
+func _clear_left_hand() -> void:
+	left_hand_item = ITEM_NONE
+	left_hand_count = 0
+	left_hand_durability = 0
+
+
+func _consume_lighter() -> bool:
+	if left_hand_item != ITEM_LIGHTER or left_hand_count <= 0:
+		_show_inventory_hint("左手没有打火机。")
+		return false
+
+	left_hand_durability = max(0, left_hand_durability - 1)
+	if left_hand_durability <= 0:
+		_clear_left_hand()
+	return true
+
+
 func _take_from_pocket(pocket_index: int) -> void:
 	if pocket_index < 0 or pocket_index >= pocket_items.size():
+		return
+
+	if not _has_pants_pockets():
+		_show_inventory_hint("现在没有可用口袋。")
 		return
 
 	if cracker_lit:
@@ -767,49 +1543,49 @@ func _take_from_pocket(pocket_index: int) -> void:
 		return
 
 	var item := String(pocket_items[pocket_index])
-	if hand_count > 0 and hand_item != item:
-		_show_inventory_hint("手上拿着%s，先按 Shift 放回去。" % _item_display_name(hand_item))
+	if right_hand_count > 0 and right_hand_item != item:
+		_show_inventory_hint("右手拿着%s，先按 Shift 放回去。" % _item_display_name(right_hand_item))
 		return
 
-	if hand_count >= HAND_CAPACITY:
-		_show_inventory_hint("手里最多拿 %d 个。" % HAND_CAPACITY)
+	if right_hand_count >= HAND_CAPACITY:
+		_show_inventory_hint("右手最多拿 %d 个。" % HAND_CAPACITY)
 		return
 
 	if int(pocket_counts[pocket_index]) <= 0:
 		_show_inventory_hint("%s已经空了。" % _box_display_name(item))
 		return
 
-	hand_item = item
-	hand_count += 1
+	right_hand_item = item
+	right_hand_count += 1
 	pocket_counts[pocket_index] = int(pocket_counts[pocket_index]) - 1
-	_show_inventory_hint("拿出 1 个%s，手上现在有 %d 个。" % [_item_display_name(item), hand_count])
+	_show_inventory_hint("拿出 1 个%s，放到右手。右手现在有 %d 个。" % [_item_display_name(item), right_hand_count])
 
 
 func _return_hand_to_pocket() -> void:
-	if hand_count <= 0:
-		_show_inventory_hint("手上没有东西。")
+	if right_hand_count <= 0:
+		_show_inventory_hint("右手没有东西。")
 		return
 
 	if cracker_lit:
 		_show_inventory_hint("点着的擦炮不能塞回口袋。")
 		return
 
-	var pocket_index := _pocket_index_for_item(hand_item)
+	var pocket_index := _pocket_index_for_item(right_hand_item)
 	if pocket_index < 0:
 		_show_inventory_hint("这个东西没有对应的盒子。")
 		return
 
 	var space := int(pocket_capacities[pocket_index]) - int(pocket_counts[pocket_index])
 	if space <= 0:
-		_show_inventory_hint("%s已经满了。" % _box_display_name(hand_item))
+		_show_inventory_hint("%s已经满了。" % _box_display_name(right_hand_item))
 		return
 
-	var returned_count := mini(space, hand_count)
+	var returned_count := mini(space, right_hand_count)
 	pocket_counts[pocket_index] = int(pocket_counts[pocket_index]) + returned_count
-	hand_count -= returned_count
-	_show_inventory_hint("放回 %d 个%s。" % [returned_count, _item_display_name(hand_item)])
-	if hand_count <= 0:
-		_clear_hand()
+	right_hand_count -= returned_count
+	_show_inventory_hint("放回 %d 个%s。" % [returned_count, _item_display_name(right_hand_item)])
+	if right_hand_count <= 0:
+		_clear_right_hand()
 
 
 func _pocket_index_for_item(item: String) -> int:
@@ -823,75 +1599,83 @@ func _try_use_selected_item() -> void:
 	if throw_cooldown > 0.0:
 		return
 
-	if hand_count <= 0 or hand_item == ITEM_NONE:
-		_show_inventory_hint("手上没有爆竹。")
+	if right_hand_count <= 0 or right_hand_item == ITEM_NONE:
+		_show_inventory_hint("右手没有爆竹。")
 		return
 
-	var thrown_count := hand_count
-	match hand_item:
+	var thrown_count := right_hand_count
+	match right_hand_item:
 		ITEM_SNAP:
 			for i in range(thrown_count):
 				_throw_projectile(ITEM_SNAP, SNAP_THROW_SPEED, SNAP_THROW_TIME, SNAP_THROW_TIME, SNAP_EXPLOSION_RADIUS, 1.05, Color(0.92, 0.20, 0.16), i, thrown_count)
 			_show_inventory_hint("扔出 %d 个摔炮。" % thrown_count)
-			_clear_hand()
+			_clear_right_hand()
 			throw_cooldown = THROW_COOLDOWN
 		ITEM_CRACKER:
-			if not cracker_lit:
-				_show_inventory_hint("擦炮还没点着。")
-				return
-			var fuse_left := maxf(cracker_fuse, 0.05)
-			for i in range(thrown_count):
-				_throw_projectile(ITEM_CRACKER, CRACKER_THROW_SPEED, CRACKER_THROW_TIME, fuse_left, CRACKER_EXPLOSION_RADIUS, 1.25, Color(0.62, 0.62, 0.58), i, thrown_count)
-			_show_inventory_hint("扔出 %d 个擦炮。" % thrown_count)
-			_clear_hand()
+			if cracker_lit:
+				var fuse_left := maxf(cracker_fuse, 0.05)
+				for i in range(thrown_count):
+					_throw_projectile(ITEM_CRACKER, CRACKER_THROW_SPEED, CRACKER_THROW_TIME, fuse_left, CRACKER_EXPLOSION_RADIUS, 1.25, Color(0.62, 0.62, 0.58), i, thrown_count, true)
+				_show_inventory_hint("扔出 %d 个点燃的黑蜘蛛擦炮。" % thrown_count)
+			else:
+				for i in range(thrown_count):
+					_throw_projectile(ITEM_CRACKER, CRACKER_THROW_SPEED, CRACKER_THROW_TIME, -1.0, CRACKER_EXPLOSION_RADIUS, 1.25, Color(0.62, 0.62, 0.58), i, thrown_count, false)
+				_show_inventory_hint("扔出 %d 个未点燃的黑蜘蛛擦炮。" % thrown_count)
+			_clear_right_hand()
 			throw_cooldown = THROW_COOLDOWN
 		_:
-			_show_inventory_hint("手上没有爆竹。")
+			_show_inventory_hint("右手没有爆竹。")
 
 
 func _try_secondary_use_selected_item() -> void:
-	if hand_count <= 0 or hand_item == ITEM_NONE:
-		_show_inventory_hint("手上没有爆竹。")
+	if right_hand_count <= 0 or right_hand_item == ITEM_NONE:
+		_show_inventory_hint("右手没有需要点燃的东西。")
 		return
 
-	match hand_item:
+	match right_hand_item:
 		ITEM_SNAP:
 			_show_inventory_hint("摔炮不用点。")
 		ITEM_CRACKER:
 			if cracker_lit:
 				_show_inventory_hint("擦炮已经点着了。")
 				return
+			if not _consume_lighter():
+				return
 			cracker_lit = true
 			cracker_fuse = CRACKER_FUSE_TIME
-			_show_inventory_hint("点着了。")
+			_show_inventory_hint("点着了。打火机耐久 %d%%。" % left_hand_durability)
 		_:
-			_show_inventory_hint("手上没有爆竹。")
+			_show_inventory_hint("右手没有爆竹。")
 
 
-func _throw_projectile(kind: String, speed: float, _base_flight_time: float, fuse: float, radius: float, arc_height: float, color: Color, spread_index: int = 0, spread_count: int = 1) -> void:
+func _throw_projectile(kind: String, speed: float, _base_flight_time: float, fuse: float, radius: float, arc_height: float, color: Color, spread_index: int = 0, spread_count: int = 1, can_explode: bool = true) -> void:
 	var landing_position := _get_spread_landing_point(throw_landing_point, spread_index, spread_count)
 	if landing_position == Vector3.ZERO:
 		landing_position = _resolve_throw_landing_point(aim_point)
 	var start_position := _get_projectile_start_position(landing_position)
 	var distance := Vector2(landing_position.x - start_position.x, landing_position.z - start_position.z).length()
 	var flight_time := maxf(THROW_MIN_FLIGHT_TIME, distance / speed)
+	var projectile_direction := _get_projectile_direction(start_position, landing_position)
+	var roll_target := landing_position
+	var should_roll := kind == ITEM_CRACKER
+	if should_roll:
+		roll_target = _resolve_roll_target(landing_position, projectile_direction, CRACKER_ROLL_DISTANCE)
 	if kind == ITEM_SNAP:
 		fuse = flight_time
+		can_explode = true
 
 	var projectile := Node3D.new()
 	projectile.name = "Projectile_%s" % kind
 	add_child(projectile)
 	projectile.global_position = start_position
+	projectile.rotation.y = atan2(projectile_direction.x, projectile_direction.z)
 
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.22, 0.22, 0.22)
-	mesh_instance.mesh = mesh
-	mesh_instance.set_surface_override_material(0, _material(color))
+	var mesh_instance := _create_projectile_mesh(kind, color)
 	projectile.add_child(mesh_instance)
 
 	projectiles.append({
 		"node": projectile,
+		"kind": kind,
 		"start_position": start_position,
 		"landing_position": landing_position,
 		"age": 0.0,
@@ -899,8 +1683,86 @@ func _throw_projectile(kind: String, speed: float, _base_flight_time: float, fus
 		"fuse": fuse,
 		"radius": radius,
 		"arc_height": arc_height,
+		"can_explode": can_explode,
 		"moving": true,
+		"rolling": should_roll,
+		"roll_age": 0.0,
+		"roll_time": CRACKER_ROLL_TIME,
+		"roll_start": landing_position,
+		"roll_target": roll_target,
 	})
+
+
+func _create_projectile_mesh(kind: String, color: Color) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.name = "StickMesh"
+	var mesh := CylinderMesh.new()
+	if kind == ITEM_SNAP:
+		mesh.height = SNAP_MODEL_LENGTH
+		mesh.top_radius = SNAP_MODEL_RADIUS
+		mesh.bottom_radius = SNAP_MODEL_RADIUS
+	else:
+		mesh.height = CRACKER_MODEL_LENGTH
+		mesh.top_radius = CRACKER_MODEL_RADIUS
+		mesh.bottom_radius = CRACKER_MODEL_RADIUS
+	mesh.radial_segments = 8
+	mesh_instance.mesh = mesh
+	mesh_instance.rotation.x = PI * 0.5
+	mesh_instance.set_surface_override_material(0, _material(color))
+	return mesh_instance
+
+
+func _make_projectile_pickup(projectile: Dictionary) -> void:
+	var node := projectile["node"] as Node3D
+	if not is_instance_valid(node):
+		return
+
+	node.name = "Dropped_%s" % String(projectile.get("kind", ITEM_CRACKER))
+	node.set_meta("interact_id", "pickup_cracker")
+	node.set_meta("pickup_item", ITEM_CRACKER)
+	node.set_meta("pickup_count", 1)
+	node.add_to_group("interactable")
+	_add_label(node, "未点燃擦炮", Vector3(0.0, 0.36, 0.0))
+
+
+func _try_pickup_dropped_item(item_node: Node3D) -> void:
+	var item := String(item_node.get_meta("pickup_item", ITEM_NONE))
+	var count := int(item_node.get_meta("pickup_count", 1))
+	if item == ITEM_NONE or count <= 0:
+		_show_inventory_hint("地上没有能捡的东西。")
+		return
+
+	if right_hand_count > 0 and right_hand_item != item:
+		_show_inventory_hint("右手拿着%s，先腾出右手。" % _item_display_name(right_hand_item))
+		return
+	if cracker_lit:
+		_show_inventory_hint("右手的擦炮已经点着了，不能再捡。")
+		return
+
+	var available_space := HAND_CAPACITY - right_hand_count
+	if available_space <= 0:
+		_show_inventory_hint("右手已经拿满了。")
+		return
+
+	var pickup_count := mini(count, available_space)
+	right_hand_item = item
+	right_hand_count += pickup_count
+	count -= pickup_count
+
+	if count <= 0:
+		item_node.queue_free()
+	else:
+		item_node.set_meta("pickup_count", count)
+	_show_inventory_hint("捡起 %d 个%s。" % [pickup_count, _item_display_name(item)])
+
+
+func _get_projectile_direction(start_position: Vector3, landing_position: Vector3) -> Vector3:
+	var direction := Vector3(landing_position.x - start_position.x, 0.0, landing_position.z - start_position.z)
+	if direction.length_squared() <= 0.001:
+		direction = aim_direction
+	if direction.length_squared() <= 0.001:
+		return Vector3.FORWARD
+	return direction.normalized()
 
 
 func _get_spread_landing_point(base_point: Vector3, spread_index: int, spread_count: int) -> Vector3:
@@ -953,6 +1815,28 @@ func _resolve_throw_landing_point(raw_point: Vector3) -> Vector3:
 
 	var hit_position: Vector3 = hit["position"]
 	var safe_position := hit_position - direction * THROW_WALL_PADDING
+	return Vector3(safe_position.x, THROW_GROUND_Y, safe_position.z)
+
+
+func _resolve_roll_target(start_point: Vector3, direction: Vector3, distance: float) -> Vector3:
+	if direction.length_squared() <= 0.001:
+		return start_point
+
+	var normalized_direction := direction.normalized()
+	var roll_start := Vector3(start_point.x, THROW_RAY_HEIGHT, start_point.z)
+	var roll_end := roll_start + normalized_direction * distance
+	var query := PhysicsRayQueryParameters3D.create(roll_start, roll_end, 1)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	if player != null:
+		query.exclude = [player.get_rid()]
+
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return Vector3(roll_end.x, THROW_GROUND_Y, roll_end.z)
+
+	var hit_position: Vector3 = hit["position"]
+	var safe_position := hit_position - normalized_direction * 0.16
 	return Vector3(safe_position.x, THROW_GROUND_Y, safe_position.z)
 
 
@@ -1026,13 +1910,9 @@ func _disable_target(target: Node3D) -> void:
 	_add_label(target, "命中", Vector3(0.0, 1.55, 0.0))
 
 
-func _get_selected_item() -> String:
-	return hand_item
-
-
-func _clear_hand() -> void:
-	hand_item = ITEM_NONE
-	hand_count = 0
+func _clear_right_hand() -> void:
+	right_hand_item = ITEM_NONE
+	right_hand_count = 0
 	cracker_lit = false
 	cracker_fuse = 0.0
 
@@ -1040,9 +1920,17 @@ func _clear_hand() -> void:
 func _item_display_name(item: String) -> String:
 	match item:
 		ITEM_SNAP:
-			return "摔炮"
+			return "小金鱼摔炮"
 		ITEM_CRACKER:
-			return "擦炮"
+			return "黑蜘蛛擦炮"
+		ITEM_LIGHTER:
+			return "普通打火机"
+		ITEM_WHITE_TSHIRT:
+			return "白色T恤"
+		ITEM_GREEN_SHORTS:
+			return "绿色短裤"
+		ITEM_WHITE_SHOES:
+			return "白色的鞋"
 		_:
 			return "空"
 
@@ -1064,6 +1952,46 @@ func _slot_style(is_selected: bool) -> StyleBoxFlat:
 	style.content_margin_right = 8.0
 	style.content_margin_top = 8.0
 	style.content_margin_bottom = 8.0
+	return style
+
+
+func _inventory_window_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.025, 0.027, 0.03, 0.96)
+	style.border_color = Color(0.58, 0.58, 0.52)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	return style
+
+
+func _inventory_section_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.045, 0.047, 0.05, 0.96)
+	style.border_color = Color(0.30, 0.31, 0.30)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	return style
+
+
+func _body_silhouette_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.022, 0.024, 0.82)
+	style.border_color = Color(0.32, 0.34, 0.32)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	return style
+
+
+func _inventory_slot_style(is_active: bool) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.012, 0.012, 0.014, 0.86)
+	style.border_color = Color(0.86, 0.18, 0.12) if is_active else Color(0.56, 0.56, 0.52)
+	style.set_border_width_all(3 if is_active else 1)
+	style.set_corner_radius_all(3)
+	style.content_margin_left = 7.0
+	style.content_margin_right = 7.0
+	style.content_margin_top = 6.0
+	style.content_margin_bottom = 6.0
 	return style
 
 
@@ -1107,6 +2035,8 @@ func _interact_with(interactable: Node3D) -> void:
 			_handle_cabinet(interactable)
 		"obj_door_a":
 			_handle_door_a(interactable)
+		"pickup_cracker":
+			_try_pickup_dropped_item(interactable)
 
 
 func _handle_door_b(door: Node3D) -> void:
